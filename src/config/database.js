@@ -1,21 +1,21 @@
 const { Sequelize } = require('sequelize');
 
-// استخدم قاعدة بيانات مختلفة للـ local لتجنب SSL
-const databaseUrl = process.env.NODE_ENV === 'production'
-  ? process.env.DATABASE_URL_RENDER   // Render
-  : process.env.DATABASE_URL_LOCAL;   // local development
+// Use DATABASE_URL in production (Render), fallback to DATABASE_URL_LOCAL for local development
+const databaseUrl = process.env.DATABASE_URL || process.env.DATABASE_URL_LOCAL;
+
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL or DATABASE_URL_LOCAL must be set');
+}
 
 const sequelize = new Sequelize(databaseUrl, {
   dialect: 'postgres',
-  protocol: 'postgres',
+  logging: process.env.NODE_ENV === 'development' ? console.log : false,
   dialectOptions: {
-    ssl: process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }  // SSL فقط على Render
-      : false                           // بدون SSL على المحلي
-  },
-  logging: console.log, // هذا لتتبع الاتصال
+    ssl: process.env.DATABASE_URL ? {
+      require: true,
+      rejectUnauthorized: false
+    } : false
+  }
 });
 
 module.exports = sequelize;
-
-
