@@ -283,32 +283,52 @@ router.post('/admin/login', async (req, res) => {
     const ADMIN_EMAIL = 'shehab.nad22@gmail.com';
     const ADMIN_PASSWORD = 'Ss123456789';
 
-    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
-      return res.status(401).json({ success: false, message: 'غير مصرح لك بالدخول' });
+    // Trim and normalize input
+    const normalizedEmail = email?.trim()?.toLowerCase();
+    const normalizedPassword = password?.trim();
+
+    if (!normalizedEmail || !normalizedPassword) {
+      return res.status(400).json({ success: false, message: 'البريد الإلكتروني وكلمة المرور مطلوبان' });
+    }
+
+    // Check credentials first (case-insensitive email)
+    if (normalizedEmail !== ADMIN_EMAIL.toLowerCase() || normalizedPassword !== ADMIN_PASSWORD) {
+      return res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة' });
     }
 
     // البحث عن المستخدم أو إنشاؤه
-    let user = await User.findOne({ where: { email, role: 'admin' } });
+    let user = await User.findOne({ where: { email: ADMIN_EMAIL, role: 'admin' } });
     
     if (!user) {
       // إنشاء حساب admin إذا لم يكن موجوداً
-      user = await User.create({
-        name: 'Shehab Admin',
-        email: ADMIN_EMAIL,
-        phone: '+963000000000',
-        password: ADMIN_PASSWORD, // سيتم تشفيره تلقائياً
-        role: 'admin',
-        isActive: true,
-        isVerified: true,
-      });
-    } else {
-      // التحقق من كلمة المرور
-      const isValid = await user.comparePassword(password);
-      if (!isValid) {
-        return res.status(401).json({ success: false, message: 'بيانات الدخول غير صحيحة' });
+      try {
+        user = await User.create({
+          name: 'Shehab Admin',
+          email: ADMIN_EMAIL,
+          phone: '+963000000000',
+          password: ADMIN_PASSWORD, // سيتم تشفيره تلقائياً
+          role: 'admin',
+          isActive: true,
+          isVerified: true,
+        });
+      } catch (createError) {
+        console.error('Error creating admin user:', createError);
+        // Try to find again in case of race condition
+        user = await User.findOne({ where: { email: ADMIN_EMAIL, role: 'admin' } });
+        if (!user) {
+          throw createError;
+        }
       }
     }
 
+    // Ensure user is active and verified
+    if (!user.isActive || !user.isVerified) {
+      user.isActive = true;
+      user.isVerified = true;
+      await user.save();
+    }
+
+    // Generate tokens
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
@@ -325,7 +345,12 @@ router.post('/admin/login', async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Admin login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'حدث خطأ أثناء تسجيل الدخول',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
