@@ -15,13 +15,13 @@ const sendWhatsAppOtp = async (phone, otp) => {
   // TODO: Integrate with WhatsApp Business API
   // For now, log the OTP
   console.log(`📱 WhatsApp OTP to ${phone}: ${otp}`);
-  
+
   // In production, use:
   // - WhatsApp Business API
   // - Twilio WhatsApp
   // - MessageBird
   // - etc.
-  
+
   return true;
 };
 
@@ -44,11 +44,10 @@ router.post('/customer/request-otp', async (req, res) => {
     // Send via WhatsApp
     await sendWhatsAppOtp(phone, otp);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'تم إرسال رمز التحقق عبر واتساب',
-      // Remove in production:
-      debug_otp: process.env.NODE_ENV === 'development' ? otp : undefined,
+      debug_otp: otp, // Always return for MVP auto-verification
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -61,7 +60,7 @@ router.post('/customer/verify-otp', async (req, res) => {
     const { phone, otp } = req.body;
 
     const stored = otpStore.get(phone);
-    
+
     if (!stored) {
       return res.status(400).json({ success: false, message: 'لم يتم طلب رمز تحقق لهذا الرقم' });
     }
@@ -185,7 +184,7 @@ router.post('/driver/register', async (req, res) => {
 // Check Driver Application Status
 router.get('/driver/status/:phone', async (req, res) => {
   try {
-    const user = await User.findOne({ 
+    const user = await User.findOne({
       where: { phone: req.params.phone, role: 'driver' },
       include: [{ model: Driver }],
     });
@@ -201,6 +200,7 @@ router.get('/driver/status/:phone', async (req, res) => {
       status,
       isApproved: user.Driver?.isApproved || false,
       accountStatus: status,
+      driverId: user.Driver?.id,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -211,7 +211,7 @@ router.get('/driver/status/:phone', async (req, res) => {
 router.post('/resend-otp', async (req, res) => {
   try {
     const { phone } = req.body;
-    
+
     const stored = otpStore.get(phone);
     if (!stored) {
       return res.status(400).json({ success: false, message: 'لم يتم طلب رمز تحقق لهذا الرقم' });
@@ -226,8 +226,8 @@ router.post('/resend-otp', async (req, res) => {
     // Send via WhatsApp
     await sendWhatsAppOtp(phone, otp);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'تم إعادة إرسال رمز التحقق',
       debug_otp: process.env.NODE_ENV === 'development' ? otp : undefined,
     });
@@ -240,14 +240,14 @@ router.post('/resend-otp', async (req, res) => {
 router.post('/refresh', async (req, res) => {
   try {
     const { refreshToken } = req.body;
-    
+
     if (!refreshToken) {
       return res.status(400).json({ success: false, message: 'Refresh token مطلوب' });
     }
 
     try {
       const decoded = jwt.verify(
-        refreshToken, 
+        refreshToken,
         process.env.JWT_REFRESH_SECRET || 'dalla3ni-refresh-secret'
       );
 
@@ -298,7 +298,7 @@ router.post('/admin/login', async (req, res) => {
 
     // البحث عن المستخدم أو إنشاؤه
     let user = await User.findOne({ where: { email: ADMIN_EMAIL, role: 'admin' } });
-    
+
     if (!user) {
       // إنشاء حساب admin إذا لم يكن موجوداً
       try {
@@ -346,8 +346,8 @@ router.post('/admin/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Admin login error:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'حدث خطأ أثناء تسجيل الدخول',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
