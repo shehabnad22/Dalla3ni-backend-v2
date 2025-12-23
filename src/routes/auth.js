@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { User, Driver } = require('../models');
 const { generateAccessToken, generateRefreshToken } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
 // Store OTPs temporarily (in production, use Redis)
 const otpStore = new Map();
@@ -120,13 +121,14 @@ router.post('/customer/verify-otp', async (req, res) => {
 });
 
 // Register Driver (PENDING_REVIEW)
-router.post('/driver/register', async (req, res) => {
+router.post('/driver/register', upload.fields([
+  { name: 'idPhoto', maxCount: 1 },
+  { name: 'bikePhoto', maxCount: 1 }
+]), async (req, res) => {
   try {
     const {
       fullName,
       phone,
-      idPhoto,
-      bikePhoto,
       plateNumber,
       bikeModel,
       areaTags,
@@ -134,9 +136,21 @@ router.post('/driver/register', async (req, res) => {
       availabilityEnd,
     } = req.body;
 
+    const idPhotoFile = req.files['idPhoto'] ? req.files['idPhoto'][0] : null;
+    const bikePhotoFile = req.files['bikePhoto'] ? req.files['bikePhoto'][0] : null;
+
     // Validation - Make plateNumber optional for MVP
-    if (!fullName || !phone || !idPhoto || !bikePhoto || !areaTags?.length) {
+    if (!fullName || !phone || !idPhotoFile || !bikePhotoFile || !areaTags) {
       return res.status(400).json({ success: false, message: 'جميع الحقول المطلوبة يجب ملؤها' });
+    }
+
+    let parsedAreaTags = areaTags;
+    if (typeof areaTags === 'string') {
+      try {
+        parsedAreaTags = JSON.parse(areaTags);
+      } catch (e) {
+        parsedAreaTags = areaTags.split(',').map(s => s.trim());
+      }
     }
 
     // Check if phone already exists
@@ -158,11 +172,11 @@ router.post('/driver/register', async (req, res) => {
     // Create driver profile with PENDING_REVIEW status
     const driver = await Driver.create({
       userId: user.id,
-      idImage: idPhoto,
-      motorImage: bikePhoto,
+      idImage: `uploads/drivers/${idPhotoFile.filename}`,
+      motorImage: `uploads/drivers/${bikePhotoFile.filename}`,
       plateNumber: plateNumber || 'N/A',
       bikeModel: bikeModel || null,
-      workingAreas: areaTags,
+      workingAreas: parsedAreaTags,
       workStartTime: availabilityStart,
       workEndTime: availabilityEnd,
       isApproved: false, // PENDING_REVIEW

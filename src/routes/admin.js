@@ -334,6 +334,7 @@ router.get('/users', async (req, res) => {
           id: user.id,
           name: user.name,
           phone: user.phone,
+          isBlocked: user.isBlocked,
           registerTime: user.createdAt,
           ordersCount,
         };
@@ -564,6 +565,43 @@ router.get('/delayed', async (req, res) => {
     delayed.sort((a, b) => b.delayMinutes - a.delayMinutes);
 
     res.json({ success: true, delayed });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Block customer
+router.post('/users/:userId/block', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const user = await User.findByPk(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.isBlocked = true;
+    user.blockReason = reason || 'حظر يدوي من الإدارة';
+    await user.save();
+
+    res.json({ success: true, message: 'تم حظر الزبون' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Unblock customer
+router.post('/users/:userId/unblock', async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.isBlocked = false;
+    user.blockReason = null;
+    await user.save();
+
+    res.json({ success: true, message: 'تم رفع الحظر عن الزبون' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
