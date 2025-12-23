@@ -323,7 +323,7 @@ router.get('/users', async (req, res) => {
     const users = await User.findAll({
       where,
       order: orderBy,
-      attributes: ['id', 'name', 'phone', 'createdAt'],
+      attributes: ['id', 'name', 'phone', 'isBlocked', 'createdAt'],
     });
 
     // Get orders count for each user

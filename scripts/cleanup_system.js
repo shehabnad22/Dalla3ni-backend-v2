@@ -1,22 +1,42 @@
-const { User, Driver, Order, Settlement } = require('../src/models');
+const { User, Driver, Order, Settlement, Review, Wallet, AuditLog } = require('../src/models');
+const sequelize = require('../src/config/database');
 
 async function cleanup() {
     try {
-        console.log('Starting cleanup...');
+        console.log('Starting full system cleanup...');
 
-        // Delete orders first (foreign key constraints)
-        await Order.destroy({ where: {}, truncate: { cascade: true } });
-        console.log('Orders & related data deleted');
+        // Disable foreign key checks for truncate (if possible) or delete in order
+        // Standard approach: delete dependent tables first
+
+        await AuditLog.destroy({ where: {} });
+        console.log('Audit logs cleared');
+
+        await Review.destroy({ where: {} });
+        console.log('Reviews cleared');
+
+        await Settlement.destroy({ where: {} });
+        console.log('Settlements cleared');
+
+        await Order.destroy({ where: {} });
+        console.log('Orders cleared');
+
+        await Wallet.destroy({ where: {} });
+        console.log('Wallets cleared');
+
+        await Driver.destroy({ where: {} });
+        console.log('Drivers cleared');
 
         // Delete users with customer or driver role (keep admins)
-        // This will cascadingly delete Drivers due to association if configured, 
-        // but we'll do it explicitly if needed.
         await User.destroy({
             where: {
                 role: ['customer', 'driver']
             }
         });
-        console.log('Customer and Driver users deleted');
+        console.log('Customer and Driver users deleted. Admin user preserved.');
+
+        // For Postgres, we might want to reset sequences as well
+        // await sequelize.query('TRUNCATE TABLE "Orders" RESTART IDENTITY CASCADE');
+        // But destroy handles Sequelize level hooks if any.
 
         console.log('Cleanup completed successfully!');
         process.exit(0);

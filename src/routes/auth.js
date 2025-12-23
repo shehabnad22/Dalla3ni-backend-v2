@@ -89,6 +89,11 @@ router.post('/customer/verify-otp', async (req, res) => {
         isActive: true,
       });
     } else {
+      // Check if user is blocked
+      if (user.isBlocked) {
+        return res.status(403).json({ success: false, message: 'تم حظرك من قبل الإدارة' });
+      }
+
       // Update name if changed
       if (user.name !== stored.name) {
         user.name = stored.name;
