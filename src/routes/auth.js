@@ -163,17 +163,43 @@ router.post('/driver/register', upload.fields([
       }
     }
 
-    // Check if phone already exists
-    const existingUser = await User.findOne({ where: { phone } });
+    // Normalize phone number (remove whitespace, leading 0 if present in +963 format)
+    const cleanPhone = phone.toString().trim().replace(/\s+/g, '');
+    let finalPhone = cleanPhone;
+
+    // Ensure strict +963 format
+    if (finalPhone.startsWith('09')) {
+      finalPhone = '+963' + finalPhone.substring(1);
+    } else if (finalPhone.startsWith('9')) {
+      finalPhone = '+963' + finalPhone;
+    } else if (finalPhone.startsWith('+9630')) {
+      // Fix double prefix/zero issue if frontend sends +9630...
+      finalPhone = '+963' + finalPhone.substring(5); // +96309... -> +9639...
+    } else if (finalPhone.startsWith('00963')) {
+      finalPhone = '+' + finalPhone.substring(2);
+    }
+
+    // Check if phone or email already exists
+    const existingUser = await User.findOne({
+      where: {
+        [require('sequelize').Op.or]: [
+          { phone: finalPhone },
+          { email: `driver_${finalPhone}@dalla3ni.app` }
+        ]
+      }
+    });
+
     if (existingUser) {
+      // If user exists but has no driver profile, we could allow them to continue...
+      // But for now, just return error to be safe/simple
       return res.status(400).json({ success: false, message: 'رقم الهاتف مسجل مسبقاً' });
     }
 
     // Create user with driver role
     const user = await User.create({
       name: fullName,
-      phone,
-      email: `driver_${phone}@dalla3ni.app`,
+      phone: finalPhone,
+      email: `driver_${finalPhone}@dalla3ni.app`,
       password: Math.random().toString(36),
       role: 'driver',
       isVerified: false, // Will be verified after admin approval
@@ -201,7 +227,11 @@ router.post('/driver/register', upload.fields([
       driverId: driver.id,
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({ success: false, message: 'رقم الهاتف أو البريد الإلكتروني مسجل مسبقاً' });
+    }
+    console.error('Driver Register Error:', error);
+    res.status(500).json({ success: false, error: 'حدث خطأ في الخادم أثناء التسجيل: ' + error.message });
   }
 });
 
