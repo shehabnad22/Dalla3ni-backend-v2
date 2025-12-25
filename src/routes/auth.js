@@ -3,7 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { User, Driver } = require('../models');
 const { generateAccessToken, generateRefreshToken, authenticate } = require('../middleware/auth');
-const upload = require('../middleware/upload');
+const { uploadMiddleware } = require('../middleware/upload');
 
 // Store OTPs temporarily (in production, use Redis)
 const otpStore = new Map();
@@ -131,7 +131,7 @@ router.post('/customer/verify-otp', async (req, res) => {
 });
 
 // Register Driver (PENDING_REVIEW)
-router.post('/driver/register', upload.fields([
+router.post('/driver/register', uploadMiddleware([
   { name: 'idPhoto', maxCount: 1 },
   { name: 'bikePhoto', maxCount: 1 }
 ]), async (req, res) => {
