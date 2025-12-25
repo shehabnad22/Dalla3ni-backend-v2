@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const { User, Driver } = require('../models');
-const { generateAccessToken, generateRefreshToken } = require('../middleware/auth');
+const { generateAccessToken, generateRefreshToken, authenticate } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 
 // Store OTPs temporarily (in production, use Redis)
