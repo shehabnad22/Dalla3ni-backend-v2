@@ -91,7 +91,12 @@ router.post('/customer/verify-otp', async (req, res) => {
     } else {
       // Check if user is blocked
       if (user.isBlocked) {
-        return res.status(403).json({ success: false, message: 'تم حظرك من قبل الإدارة' });
+        return res.status(403).json({ 
+          success: false, 
+          message: 'لقد خالفت معايير الاستخدام وتم حظرك',
+          isBlocked: true,
+          blockReason: user.blockReason || 'تم الحظر من قبل الإدارة'
+        });
       }
 
       // Update name if changed
@@ -212,6 +217,26 @@ router.get('/driver/status/:phone', async (req, res) => {
       return res.status(404).json({ success: false, message: 'لم يتم العثور على طلب تسجيل' });
     }
 
+    // Check if user is blocked
+    if (user.isBlocked) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'لقد خالفت معايير الاستخدام وتم حظرك',
+        isBlocked: true,
+        blockReason: user.blockReason || 'تم الحظر من قبل الإدارة'
+      });
+    }
+
+    // Check if driver is blocked
+    if (user.Driver?.isBlocked) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'لقد خالفت معايير الاستخدام وتم حظرك',
+        isBlocked: true,
+        blockReason: user.Driver.blockReason || 'تم الحظر من قبل الإدارة'
+      });
+    }
+
     const status = user.Driver?.accountStatus || 'PENDING_REVIEW';
 
     res.json({
@@ -220,9 +245,116 @@ router.get('/driver/status/:phone', async (req, res) => {
       isApproved: user.Driver?.isApproved || false,
       accountStatus: status,
       driverId: user.Driver?.id,
+      isBlocked: false,
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Driver status check error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'حدث خطأ أثناء التحقق من حالة السائق',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Driver Login (for approved drivers)
+router.post('/driver/login', async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'رقم الهاتف مطلوب' 
+      });
+    }
+
+    // Find user with driver role
+    const user = await User.findOne({
+      where: { phone, role: 'driver' },
+      include: [{ model: Driver }],
+    });
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'لم يتم العثور على حساب بهذا الرقم' 
+      });
+    }
+
+    // Check if user is blocked
+    if (user.isBlocked) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'لقد خالفت معايير الاستخدام وتم حظرك',
+        isBlocked: true,
+        blockReason: user.blockReason || 'تم الحظر من قبل الإدارة'
+      });
+    }
+
+    // Check if driver exists and is blocked
+    if (!user.Driver) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'لم يتم العثور على ملف السائق. يرجى التسجيل أولاً' 
+      });
+    }
+
+    if (user.Driver.isBlocked) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'لقد خالفت معايير الاستخدام وتم حظرك',
+        isBlocked: true,
+        blockReason: user.Driver.blockReason || 'تم الحظر من قبل الإدارة'
+      });
+    }
+
+    // Check if driver is approved
+    if (!user.Driver.isApproved || user.Driver.accountStatus !== 'APPROVED') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'حسابك قيد المراجعة. سيتم التواصل معك قريباً',
+        accountStatus: user.Driver.accountStatus || 'PENDING_REVIEW'
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'حسابك غير نشط. يرجى التواصل مع الدعم' 
+      });
+    }
+
+    // Generate tokens
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    res.json({
+      success: true,
+      message: 'تم تسجيل الدخول بنجاح',
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+      },
+      driver: {
+        id: user.Driver.id,
+        isAvailable: user.Driver.isAvailable,
+        accountStatus: user.Driver.accountStatus,
+      },
+      driverId: user.Driver.id, // For backward compatibility
+    });
+  } catch (error) {
+    console.error('Driver login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'حدث خطأ أثناء تسجيل الدخول',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -252,6 +384,72 @@ router.post('/resend-otp', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Check user ban status (for app startup)
+router.get('/check-ban/:phone', async (req, res) => {
+  try {
+    const { phone } = req.params;
+    const { role } = req.query; // 'customer' or 'driver'
+
+    if (!phone) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'رقم الهاتف مطلوب' 
+      });
+    }
+
+    const user = await User.findOne({
+      where: { phone, role: role || 'customer' },
+      include: role === 'driver' ? [{ model: Driver }] : [],
+    });
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'المستخدم غير موجود' 
+      });
+    }
+
+    // Check if user is blocked
+    if (user.isBlocked) {
+      return res.json({
+        success: true,
+        isBlocked: true,
+        message: 'لقد خالفت معايير الاستخدام وتم حظرك',
+        blockReason: user.blockReason || 'تم الحظر من قبل الإدارة'
+      });
+    }
+
+    // For drivers, check driver-level block
+    if (role === 'driver' && user.Driver?.isBlocked) {
+      return res.json({
+        success: true,
+        isBlocked: true,
+        message: 'لقد خالفت معايير الاستخدام وتم حظرك',
+        blockReason: user.Driver.blockReason || 'تم الحظر من قبل الإدارة'
+      });
+    }
+
+    // User is not blocked
+    res.json({
+      success: true,
+      isBlocked: false,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+      }
+    });
+  } catch (error) {
+    console.error('Ban check error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'حدث خطأ أثناء التحقق من حالة المستخدم',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
