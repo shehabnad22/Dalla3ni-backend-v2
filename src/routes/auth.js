@@ -91,8 +91,8 @@ router.post('/customer/verify-otp', async (req, res) => {
     } else {
       // Check if user is blocked
       if (user.isBlocked) {
-        return res.status(403).json({ 
-          success: false, 
+        return res.status(403).json({
+          success: false,
           message: 'لقد خالفت معايير الاستخدام وتم حظرك',
           isBlocked: true,
           blockReason: user.blockReason || 'تم الحظر من قبل الإدارة'
@@ -205,6 +205,28 @@ router.post('/driver/register', upload.fields([
   }
 });
 
+// Get Current User (Global Auth Check)
+router.get('/me', authenticate, async (req, res) => {
+  try {
+    // User is already attached by middleware and checked for blocking
+    const user = req.user;
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        role: user.role,
+      },
+      isBlocked: false // Middleware guarantees this
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Check Driver Application Status
 router.get('/driver/status/:phone', async (req, res) => {
   try {
@@ -219,8 +241,8 @@ router.get('/driver/status/:phone', async (req, res) => {
 
     // Check if user is blocked
     if (user.isBlocked) {
-      return res.status(403).json({ 
-        success: false, 
+      return res.status(403).json({
+        success: false,
         message: 'لقد خالفت معايير الاستخدام وتم حظرك',
         isBlocked: true,
         blockReason: user.blockReason || 'تم الحظر من قبل الإدارة'
@@ -229,8 +251,8 @@ router.get('/driver/status/:phone', async (req, res) => {
 
     // Check if driver is blocked
     if (user.Driver?.isBlocked) {
-      return res.status(403).json({ 
-        success: false, 
+      return res.status(403).json({
+        success: false,
         message: 'لقد خالفت معايير الاستخدام وتم حظرك',
         isBlocked: true,
         blockReason: user.Driver.blockReason || 'تم الحظر من قبل الإدارة'
@@ -249,8 +271,8 @@ router.get('/driver/status/:phone', async (req, res) => {
     });
   } catch (error) {
     console.error('Driver status check error:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'حدث خطأ أثناء التحقق من حالة السائق',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -262,74 +284,82 @@ router.post('/driver/login', async (req, res) => {
   try {
     const { phone } = req.body;
 
+    // 1. Input Validation
     if (!phone) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'رقم الهاتف مطلوب' 
+      return res.status(400).json({
+        success: false,
+        message: 'رقم الهاتف مطلوب'
       });
     }
 
-    // Find user with driver role
+    // Normalize phone (remove whitespace)
+    const cleanPhone = phone.toString().trim().replace(/\s+/g, '');
+
+    // 2. Database Query
     const user = await User.findOne({
-      where: { phone, role: 'driver' },
+      where: { phone: cleanPhone, role: 'driver' },
       include: [{ model: Driver }],
     });
 
+    // 3. Check User Existence
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'لم يتم العثور على حساب بهذا الرقم' 
+      return res.status(404).json({
+        success: false,
+        message: 'لم يتم العثور على حساب بهذا الرقم'
       });
     }
 
-    // Check if user is blocked
+    // 4. Check Global Blocking (User Level)
     if (user.isBlocked) {
-      return res.status(403).json({ 
-        success: false, 
+      return res.status(403).json({
+        success: false,
         message: 'لقد خالفت معايير الاستخدام وتم حظرك',
         isBlocked: true,
         blockReason: user.blockReason || 'تم الحظر من قبل الإدارة'
       });
     }
 
-    // Check if driver exists and is blocked
+    // 5. Check Driver Profile Existence
     if (!user.Driver) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'لم يتم العثور على ملف السائق. يرجى التسجيل أولاً' 
+      // Edge case: User exists but Driver profile was deleted or not created
+      return res.status(400).json({
+        success: false,
+        message: 'لم يتم العثور على ملف السائق. يرجى التسجيل أولاً'
       });
     }
 
+    // 6. Check Driver Blocking (Driver Level)
     if (user.Driver.isBlocked) {
-      return res.status(403).json({ 
-        success: false, 
+      return res.status(403).json({
+        success: false,
         message: 'لقد خالفت معايير الاستخدام وتم حظرك',
         isBlocked: true,
         blockReason: user.Driver.blockReason || 'تم الحظر من قبل الإدارة'
       });
     }
 
-    // Check if driver is approved
+    // 7. Check Approval Status
     if (!user.Driver.isApproved || user.Driver.accountStatus !== 'APPROVED') {
-      return res.status(403).json({ 
-        success: false, 
+      return res.status(403).json({
+        success: false,
         message: 'حسابك قيد المراجعة. سيتم التواصل معك قريباً',
         accountStatus: user.Driver.accountStatus || 'PENDING_REVIEW'
       });
     }
 
-    // Check if user is active
+    // 8. Check Active Status
     if (!user.isActive) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'حسابك غير نشط. يرجى التواصل مع الدعم' 
+      return res.status(403).json({
+        success: false,
+        message: 'حسابك غير نشط. يرجى التواصل مع الدعم'
       });
     }
 
-    // Generate tokens
+    // 9. Generate Tokens
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
+    // 10. Success Response
     res.json({
       success: true,
       message: 'تم تسجيل الدخول بنجاح',
@@ -346,14 +376,16 @@ router.post('/driver/login', async (req, res) => {
         isAvailable: user.Driver.isAvailable,
         accountStatus: user.Driver.accountStatus,
       },
-      driverId: user.Driver.id, // For backward compatibility
+      driverId: user.Driver.id,
     });
+
   } catch (error) {
     console.error('Driver login error:', error);
-    res.status(500).json({ 
-      success: false, 
+    // Return structured error, never 500 crash dump
+    res.status(400).json({
+      success: false,
       message: 'حدث خطأ أثناء تسجيل الدخول',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      developer_error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -394,9 +426,9 @@ router.get('/check-ban/:phone', async (req, res) => {
     const { role } = req.query; // 'customer' or 'driver'
 
     if (!phone) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'رقم الهاتف مطلوب' 
+      return res.status(400).json({
+        success: false,
+        message: 'رقم الهاتف مطلوب'
       });
     }
 
@@ -406,9 +438,9 @@ router.get('/check-ban/:phone', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'المستخدم غير موجود' 
+      return res.status(404).json({
+        success: false,
+        message: 'المستخدم غير موجود'
       });
     }
 
@@ -445,8 +477,8 @@ router.get('/check-ban/:phone', async (req, res) => {
     });
   } catch (error) {
     console.error('Ban check error:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'حدث خطأ أثناء التحقق من حالة المستخدم',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
